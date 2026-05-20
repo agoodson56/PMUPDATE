@@ -1,13 +1,16 @@
-import { handle } from "hono/cloudflare-pages";
 import app from "../src/index";
 
-const honoHandler = handle(app);
+type Env = { DB: D1Database };
 
-export const onRequest: PagesFunction = async (context) => {
+export const onRequest: PagesFunction<Env> = async (context) => {
     const url = new URL(context.request.url);
-    // Let Pages serve static assets (CSS/JS/images) directly.
+    // Let Pages serve static assets directly; everything else hits the Hono app.
     if (url.pathname.startsWith("/static/") || url.pathname === "/favicon.ico") {
         return context.next();
     }
-    return honoHandler(context);
+    return app.fetch(context.request, context.env, {
+        waitUntil: context.waitUntil.bind(context),
+        passThroughOnException: context.passThroughOnException.bind(context),
+        props: {},
+    });
 };
