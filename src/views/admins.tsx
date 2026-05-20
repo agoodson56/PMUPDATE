@@ -2,6 +2,7 @@ import { Layout } from "./layout";
 import type { AdminUser } from "../db";
 import type { Flash } from "../flash";
 import type { UserContext } from "../auth";
+import { caDate } from "../dates";
 
 export function AdminsView({
     admins,
@@ -55,7 +56,7 @@ export function AdminsView({
                                 {a.email === user.email ? <span class="badge badge-active" style="margin-left:8px">you</span> : null}
                             </td>
                             <td>{a.note || ""}</td>
-                            <td class="muted">{(a.created_at || "").slice(0, 10)}</td>
+                            <td class="muted">{caDate(a.created_at)}</td>
                             <td>
                                 {a.email === user.email ? (
                                     <span class="muted">— cannot remove self</span>

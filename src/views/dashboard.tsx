@@ -3,6 +3,7 @@ import { Layout } from "./layout";
 import type { Project } from "../db";
 import type { Flash } from "../flash";
 import type { UserContext } from "../auth";
+import { caDate } from "../dates";
 
 export function Dashboard({
     projects,
@@ -40,7 +41,7 @@ export function Dashboard({
                             </div>
                             <dl class="card-meta">
                                 <dt>PM</dt><dd>{p.pm_name}</dd>
-                                <dt>Uploaded</dt><dd>{(p.created_at || "").slice(0, 10)}</dd>
+                                <dt>Uploaded</dt><dd>{caDate(p.created_at)}</dd>
                                 <dt>Bid Hours</dt><dd>{p.bid_labor_hours.toFixed(1)}</dd>
                                 {p.file_name ? (<><dt>BOM File</dt><dd class="truncate">{p.file_name}</dd></>) : null}
                             </dl>

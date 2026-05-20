@@ -3,6 +3,7 @@ import { Layout } from "./layout";
 import type { Project, BomItemWithInstalled, DailyEntry } from "../db";
 import type { Flash } from "../flash";
 import type { UserContext } from "../auth";
+import { caDateTime } from "../dates";
 
 type Props = {
     project: Project;
@@ -150,7 +151,7 @@ export function Daily({ project, items, history, today, flash, user }: Props) {
                                     <td>{h.entry_date}</td>
                                     <td class="num">{h.total_hours.toFixed(2)}</td>
                                     <td>{h.notes || ""}</td>
-                                    <td class="muted">{(h.created_at || "").slice(0, 16)}</td>
+                                    <td class="muted">{caDateTime(h.created_at)}</td>
                                 </tr>
                             ))}
                         </tbody>

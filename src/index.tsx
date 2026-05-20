@@ -23,6 +23,7 @@ import {
     adminOnly,
     type UserContext,
 } from "./auth";
+import { todayIso } from "./dates";
 import { Dashboard } from "./views/dashboard";
 import { Daily } from "./views/daily";
 import { Admin, type AdminRow, type AdminTotals } from "./views/admin";
@@ -65,20 +66,7 @@ function isFile(v: unknown): v is File {
     );
 }
 
-// 3DTS is based in California; force every "today" computation through
-// Pacific time so the app is consistent regardless of where the Worker
-// happens to run or what the user's browser clock says. Change this
-// constant if you ever need a different default zone.
-const PROJECT_TZ = "America/Los_Angeles";
-
-function todayIso(): string {
-    // "sv-SE" locale formats as YYYY-MM-DD which is what
-    // <input type="date"> expects. Intl handles DST automatically.
-    return new Intl.DateTimeFormat("sv-SE", {
-        timeZone: PROJECT_TZ,
-        year: "numeric", month: "2-digit", day: "2-digit",
-    }).format(new Date());
-}
+// Date helpers all live in src/dates.ts so views can use them too.
 
 function htmlResponse(node: unknown): Response {
     return new Response("<!doctype html>" + String(node), {
