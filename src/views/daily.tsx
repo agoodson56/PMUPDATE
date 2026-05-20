@@ -1,3 +1,4 @@
+import { raw } from "hono/html";
 import { Layout } from "./layout";
 import type { Project, BomItemWithInstalled, DailyEntry } from "../db";
 import type { Flash } from "../flash";
@@ -42,8 +43,21 @@ export function Daily({ project, items, history, today, flash, user }: Props) {
             <form method="post" action={`/project/${project.id}/daily`} id="daily-form">
                 <div class="entry-meta">
                     <label>Date
-                        <input type="date" name="entry_date" value={today} required />
+                        <input type="date" name="entry_date" id="entry_date" value={today} required />
                     </label>
+                    {/* Belt-and-suspenders: force the date input to the browser's
+                        true local date immediately, in case the server-rendered
+                        value was off (UTC timezone bug). */}
+                    <script>{raw(`
+                        (function () {
+                            var input = document.getElementById('entry_date');
+                            if (!input) return;
+                            var d = new Date();
+                            input.value = d.getFullYear() + '-' +
+                                String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                                String(d.getDate()).padStart(2, '0');
+                        })();
+                    `)}</script>
                     <label>Total Hours Today
                         <input type="number" name="total_hours" id="total_hours" step="0.25" min="0" value="0" required />
                     </label>
