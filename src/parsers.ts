@@ -24,27 +24,61 @@ function findCol(headers: string[], candidates: string[]): string | null {
     for (const h of headers) {
         if (h) normMap.set(norm(h), h);
     }
+    // Exact match first.
     for (const c of candidates) {
         const nc = norm(c);
         if (normMap.has(nc)) return normMap.get(nc)!;
     }
+    // Partial match: header must CONTAIN the candidate, not the reverse.
+    // (Reverse direction caused false positives like "hours per unit"
+    // matching a column literally named "Unit".)
     for (const c of candidates) {
         const nc = norm(c);
+        if (!nc) continue;
         for (const [hn, h] of normMap.entries()) {
-            if (hn && (nc.includes(hn) || hn.includes(nc))) return h;
+            if (hn && hn.includes(nc)) return h;
         }
     }
     return null;
+}
+
+// Skip rows whose "material" cell is actually a section header, subtotal,
+// pricing summary line, or other non-line-item content.
+const SKIP_PATTERNS: RegExp[] = [
+    /^subtotal\b/i,
+    /^total\b/i,
+    /^grand total\b/i,
+    /^bid price\b/i,
+    /^pricing summary\b/i,
+    /^material( & equipment)? subtotal\b/i,
+    /^total line items\b/i,
+    /^\d+\s*$/, // bare row numbers
+];
+
+function shouldSkip(material: string): boolean {
+    const trimmed = material.trim();
+    if (!trimmed) return true;
+    return SKIP_PATTERNS.some(re => re.test(trimmed));
 }
 
 function parseRows(
     headers: string[],
     rows: Record<string, unknown>[],
 ): ParsedItem[] {
-    const matCol = findCol(headers, ["material", "description", "item", "part", "product"]);
+    // Candidates ordered most-specific first so multi-word headers match before
+    // single-word ones (e.g. "Item / Description" before "Part #").
+    const matCol = findCol(headers, [
+        "item / description", "item description", "material description",
+        "material name", "description", "material", "item", "product",
+    ]);
     const qtyCol = findCol(headers, ["qty", "quantity", "count"]);
-    const priceCol = findCol(headers, ["unit price", "price", "unit cost", "cost"]);
-    const hoursCol = findCol(headers, ["hours per unit", "hrs per unit", "labor hours", "hours", "hrs", "labor"]);
+    const priceCol = findCol(headers, [
+        "unit cost ($)", "unit cost", "unit price", "price", "cost",
+    ]);
+    const hoursCol = findCol(headers, [
+        "hours per unit", "hrs per unit", "labor hours", "hours", "hrs", "labor",
+    ]);
+    const unitCol = findCol(headers, ["unit", "uom", "units"]);
 
     const items: ParsedItem[] = [];
     for (const row of rows) {
@@ -52,6 +86,16 @@ function parseRows(
         if (material === null || material === undefined) continue;
         const matStr = String(material).trim();
         if (matStr === "") continue;
+        if (shouldSkip(matStr)) continue;
+
+        // If a Unit column exists in this BOM, real line items have a non-empty
+        // unit (ea / ft / lot / etc). Pricing-summary, category-header, and
+        // total rows leave it blank — drop them.
+        if (unitCol) {
+            const unit = String(row[unitCol] ?? "").trim();
+            if (unit === "") continue;
+        }
+
         items.push({
             material: matStr,
             bom_qty: toFloat(qtyCol ? row[qtyCol] : null),
@@ -98,11 +142,43 @@ export async function parseCsv(file: File): Promise<ParsedItem[]> {
     return parseRows(headers, rows);
 }
 
+function pickBomSheet(sheetNames: string[]): string {
+    // Prefer a sheet whose name indicates it holds the actual BOM line items,
+    // not a metadata / summary / exclusions sheet.
+    const preferred = [
+        "bill of materials", "bom", "materials", "parts list",
+        "line items", "items", "parts",
+    ];
+    const lower = sheetNames.map(n => n.toLowerCase());
+    for (const p of preferred) {
+        for (let i = 0; i < lower.length; i++) {
+            if (lower[i].includes(p)) return sheetNames[i];
+        }
+    }
+    return sheetNames[0];
+}
+
+function findHeaderRow(aoa: unknown[][]): number {
+    // The header row is the one with a Qty-like cell AND a description/item-like
+    // cell. Title rows ("DETAILED BILL OF MATERIALS"), subtitles, and metadata
+    // rows fail this test and get skipped.
+    const max = Math.min(aoa.length, 60);
+    for (let i = 0; i < max; i++) {
+        const cells = (aoa[i] ?? []).map(c => String(c ?? "").toLowerCase().trim());
+        const hasQty = cells.some(c => /^(qty|quantity|count)$/.test(c));
+        const hasItem = cells.some(c =>
+            /(item|description|material|product)/.test(c)
+        );
+        if (hasQty && hasItem) return i;
+    }
+    return -1;
+}
+
 export async function parseXlsx(file: File): Promise<ParsedItem[]> {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
-    const sheetName = wb.SheetNames[0];
-    if (!sheetName) return [];
+    if (wb.SheetNames.length === 0) return [];
+    const sheetName = pickBomSheet(wb.SheetNames);
     const ws = wb.Sheets[sheetName];
     const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, {
         header: 1,
@@ -110,15 +186,20 @@ export async function parseXlsx(file: File): Promise<ParsedItem[]> {
         defval: "",
     });
     if (aoa.length === 0) return [];
-    // Find first non-empty row as header
-    let headerIdx = 0;
-    for (let i = 0; i < aoa.length; i++) {
-        const r = aoa[i] as unknown[];
-        if (r.some(c => c !== null && c !== undefined && String(c).trim() !== "")) {
-            headerIdx = i;
-            break;
+
+    let headerIdx = findHeaderRow(aoa);
+    if (headerIdx < 0) {
+        // Fall back to the first non-empty row.
+        for (let i = 0; i < aoa.length; i++) {
+            const r = aoa[i] as unknown[];
+            if (r.some(c => c !== null && c !== undefined && String(c).trim() !== "")) {
+                headerIdx = i;
+                break;
+            }
         }
     }
+    if (headerIdx < 0) return [];
+
     const headers = (aoa[headerIdx] as unknown[]).map(c => String(c ?? "").trim());
     const rows: Record<string, unknown>[] = [];
     for (let i = headerIdx + 1; i < aoa.length; i++) {
