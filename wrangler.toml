@@ -9,7 +9,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "pm-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "b5d94395-dee9-44ed-be85-6038ee3033b4"
 migrations_dir = "migrations"
 
 [observability]
