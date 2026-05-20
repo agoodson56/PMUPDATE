@@ -4,14 +4,25 @@ import type {
     BomItemWithInstalled,
     DailyEntry,
     LaborManualEntry,
+    PendingUpload,
+    BomTemplate,
 } from "./db";
 import { lookupLaborHours, normalize } from "./db";
-import { parseBom } from "./parsers";
+import {
+    parseFileToGrid,
+    autoDetectMapping,
+    applyMapping,
+    DEFAULT_SKIP_PATTERNS,
+    type Mapping,
+    type Grid,
+} from "./parsers";
 import { consumeFlash, setFlash } from "./flash";
 import { Dashboard } from "./views/dashboard";
 import { Daily } from "./views/daily";
 import { Admin, type AdminRow, type AdminTotals } from "./views/admin";
 import { LaborManualView } from "./views/labor_manual";
+import { MapView } from "./views/map";
+import { TemplatesView } from "./views/templates";
 
 type Bindings = {
     DB: D1Database;
@@ -78,28 +89,111 @@ app.post("/projects", async c => {
         return c.redirect("/");
     }
 
-    let items;
+    let grid: Grid;
     try {
-        items = await parseBom(file);
+        grid = await parseFileToGrid(file);
     } catch (e) {
         setFlash(c, "error", `Failed to parse BOM: ${(e as Error).message}`);
         return c.redirect("/");
     }
-
-    if (!items.length) {
-        setFlash(c, "error", "No items found in BOM. Ensure the file has Material and Qty columns.");
+    if (Object.keys(grid).length === 0) {
+        setFlash(c, "error", "BOM file is empty or unreadable.");
         return c.redirect("/");
     }
 
+    // Stage the parsed grid + project metadata; user picks column mapping next.
+    const uuid = crypto.randomUUID();
+    await c.env.DB.prepare(
+        "INSERT INTO pending_uploads (id, project_name, pm_name, bid_labor_hours, file_name, sheets_json) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(
+        uuid, name, pm_name, bid_labor_hours, file.name, JSON.stringify(grid),
+    ).run();
+
+    // Best-effort cleanup of any abandoned uploads >1 day old.
+    await c.env.DB.prepare(
+        "DELETE FROM pending_uploads WHERE datetime(created_at) < datetime('now', '-1 day')",
+    ).run().catch(() => { /* ignore */ });
+
+    return c.redirect(`/projects/map/${uuid}`);
+});
+
+app.get("/projects/map/:uuid", async c => {
+    const uuid = c.req.param("uuid");
+    const pending = await c.env.DB
+        .prepare("SELECT * FROM pending_uploads WHERE id = ?")
+        .bind(uuid)
+        .first<PendingUpload>();
+    if (!pending) {
+        setFlash(c, "error", "Upload session expired. Please re-upload the BOM.");
+        return c.redirect("/");
+    }
+    const grid: Grid = JSON.parse(pending.sheets_json);
+    const mapping = autoDetectMapping(grid);
+    const templatesRes = await c.env.DB
+        .prepare("SELECT * FROM bom_templates ORDER BY name")
+        .all<BomTemplate>();
+    const flash = consumeFlash(c);
+    return htmlResponse(
+        <MapView
+            pending={pending}
+            grid={grid}
+            mapping={mapping}
+            templates={templatesRes.results ?? []}
+            flash={flash}
+        />,
+    );
+});
+
+app.post("/projects/map/:uuid", async c => {
+    const uuid = c.req.param("uuid");
+    const pending = await c.env.DB
+        .prepare("SELECT * FROM pending_uploads WHERE id = ?")
+        .bind(uuid)
+        .first<PendingUpload>();
+    if (!pending) {
+        setFlash(c, "error", "Upload session expired. Please re-upload the BOM.");
+        return c.redirect("/");
+    }
+    const grid: Grid = JSON.parse(pending.sheets_json);
+
+    const form = await c.req.formData();
+    const sheetName = String(form.get("sheet_name") ?? "");
+    const headerRow1Based = parseInt(String(form.get("header_row") ?? "1"), 10);
+    const headerRow = Math.max(0, (Number.isFinite(headerRow1Based) ? headerRow1Based : 1) - 1);
+    const mapping: Mapping = {
+        sheetName,
+        headerRow,
+        materialCol: parseInt(String(form.get("material_col") ?? "-1"), 10),
+        qtyCol: parseInt(String(form.get("qty_col") ?? "-1"), 10),
+        priceCol: parseInt(String(form.get("price_col") ?? "-1"), 10),
+        unitCol: parseInt(String(form.get("unit_col") ?? "-1"), 10),
+        hoursCol: parseInt(String(form.get("hours_col") ?? "-1"), 10),
+        skipPatterns: DEFAULT_SKIP_PATTERNS,
+    };
+
+    if (!grid[mapping.sheetName]) {
+        setFlash(c, "error", "Selected sheet does not exist.");
+        return c.redirect(`/projects/map/${uuid}`);
+    }
+    if (mapping.materialCol < 0 || mapping.qtyCol < 0) {
+        setFlash(c, "error", "Material name and Quantity columns are required.");
+        return c.redirect(`/projects/map/${uuid}`);
+    }
+
+    const items = applyMapping(grid, mapping);
+    if (items.length === 0) {
+        setFlash(c, "error", "No line items found with current mapping. Check your column selections.");
+        return c.redirect(`/projects/map/${uuid}`);
+    }
+
+    // Create project + BOM items.
     const projInsert = await c.env.DB
-        .prepare(
-            "INSERT INTO projects (name, pm_name, bid_labor_hours, file_name) VALUES (?, ?, ?, ?)",
-        )
-        .bind(name, pm_name, bid_labor_hours, file.name)
+        .prepare("INSERT INTO projects (name, pm_name, bid_labor_hours, file_name) VALUES (?, ?, ?, ?)")
+        .bind(pending.project_name, pending.pm_name, pending.bid_labor_hours, pending.file_name)
         .run();
     const projectId = projInsert.meta.last_row_id as number;
 
-    const stmt = c.env.DB.prepare(
+    const itemStmt = c.env.DB.prepare(
         "INSERT INTO bom_items (project_id, material, bom_qty, unit_price, hours_per_unit, needs_review) VALUES (?, ?, ?, ?, ?, ?)",
     );
     const batch: D1PreparedStatement[] = [];
@@ -116,13 +210,72 @@ app.post("/projects", async c => {
             }
         }
         batch.push(
-            stmt.bind(projectId, it.material, it.bom_qty, it.unit_price, hours, needsReview),
+            itemStmt.bind(projectId, it.material, it.bom_qty, it.unit_price, hours, needsReview),
         );
     }
     if (batch.length) await c.env.DB.batch(batch);
 
-    setFlash(c, "success", `Project '${name}' created with ${items.length} line items.`);
+    // Optionally save the mapping as a template.
+    const saveTemplate = form.get("save_template") !== null;
+    const templateName = String(form.get("template_name") ?? "").trim();
+    if (saveTemplate && templateName) {
+        const headers = grid[mapping.sheetName][mapping.headerRow] ?? [];
+        const headerAt = (i: number): string | null =>
+            i >= 0 && headers[i] != null
+                ? String(headers[i]).trim() || null
+                : null;
+        await c.env.DB.prepare(`
+            INSERT INTO bom_templates
+                (name, sheet_pattern, material_header, qty_header, price_header, unit_header, hours_header, skip_patterns)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                sheet_pattern  = excluded.sheet_pattern,
+                material_header = excluded.material_header,
+                qty_header     = excluded.qty_header,
+                price_header   = excluded.price_header,
+                unit_header    = excluded.unit_header,
+                hours_header   = excluded.hours_header,
+                skip_patterns  = excluded.skip_patterns
+        `).bind(
+            templateName,
+            mapping.sheetName,
+            headerAt(mapping.materialCol) ?? "",
+            headerAt(mapping.qtyCol) ?? "",
+            headerAt(mapping.priceCol),
+            headerAt(mapping.unitCol),
+            headerAt(mapping.hoursCol),
+            JSON.stringify(mapping.skipPatterns),
+        ).run();
+    }
+
+    // Done with the staged upload.
+    await c.env.DB.prepare("DELETE FROM pending_uploads WHERE id = ?").bind(uuid).run();
+
+    setFlash(
+        c,
+        "success",
+        `Project '${pending.project_name}' imported with ${items.length} line items.`,
+    );
     return c.redirect("/");
+});
+
+app.get("/templates", async c => {
+    const res = await c.env.DB
+        .prepare("SELECT * FROM bom_templates ORDER BY name")
+        .all<BomTemplate>();
+    const flash = consumeFlash(c);
+    return htmlResponse(
+        <TemplatesView templates={res.results ?? []} flash={flash} />,
+    );
+});
+
+app.post("/templates/:id/delete", async c => {
+    await c.env.DB
+        .prepare("DELETE FROM bom_templates WHERE id = ?")
+        .bind(Number(c.req.param("id")))
+        .run();
+    setFlash(c, "success", "Template deleted.");
+    return c.redirect("/templates");
 });
 
 app.post("/project/:id/delete", async c => {

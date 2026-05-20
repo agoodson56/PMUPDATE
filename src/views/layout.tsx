@@ -27,6 +27,7 @@ export function Layout(props: LayoutProps) {
                         <nav class="nav">
                             <a href="/">Projects</a>
                             <a href="/labor-manual">Labor Manual</a>
+                            <a href="/templates">Templates</a>
                         </nav>
                     </div>
                 </header>
