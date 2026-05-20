@@ -3,6 +3,7 @@ import { Layout } from "./layout";
 import type { PendingUpload, BomTemplate } from "../db";
 import type { Grid, Mapping } from "../parsers";
 import type { Flash } from "../flash";
+import type { UserContext } from "../auth";
 
 type Props = {
     pending: PendingUpload;
@@ -10,9 +11,10 @@ type Props = {
     mapping: Mapping | null;
     templates: BomTemplate[];
     flash: Flash | null;
+    user: UserContext;
 };
 
-export function MapView({ pending, grid, mapping, templates, flash }: Props) {
+export function MapView({ pending, grid, mapping, templates, flash, user }: Props) {
     const sheetNames = Object.keys(grid);
     const fallback: Mapping = {
         sheetName: sheetNames[0] ?? "",
@@ -48,6 +50,7 @@ export function MapView({ pending, grid, mapping, templates, flash }: Props) {
             title={`Map columns · ${pending.project_name}`}
             flash={flash}
             extraScripts="/static/map.js"
+            user={user}
         >
             <nav class="breadcrumbs">
                 <a href="/">Projects</a> / Map BOM columns

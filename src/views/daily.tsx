@@ -1,6 +1,7 @@
 import { Layout } from "./layout";
 import type { Project, BomItemWithInstalled, DailyEntry } from "../db";
 import type { Flash } from "../flash";
+import type { UserContext } from "../auth";
 
 type Props = {
     project: Project;
@@ -8,14 +9,16 @@ type Props = {
     history: DailyEntry[];
     today: string;
     flash: Flash | null;
+    user: UserContext;
 };
 
-export function Daily({ project, items, history, today, flash }: Props) {
+export function Daily({ project, items, history, today, flash, user }: Props) {
     return (
         <Layout
             title={`${project.name} · Daily Entry`}
             flash={flash}
             extraScripts="/static/daily.js"
+            user={user}
         >
             <nav class="breadcrumbs">
                 <a href="/">Projects</a> / <span>{project.name}</span> / Daily Entry
@@ -30,7 +33,9 @@ export function Daily({ project, items, history, today, flash }: Props) {
                     </p>
                 </div>
                 <div class="actions">
-                    <a href={`/project/${project.id}/admin`} class="btn btn-secondary">View Summary</a>
+                    {user.isAdmin ? (
+                        <a href={`/project/${project.id}/admin`} class="btn btn-secondary">View Summary</a>
+                    ) : null}
                 </div>
             </section>
 

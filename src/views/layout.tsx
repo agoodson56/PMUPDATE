@@ -1,14 +1,17 @@
 import type { Flash } from "../flash";
+import type { UserContext } from "../auth";
 
 type LayoutProps = {
     title?: string;
     flash?: Flash | null;
     extraScripts?: string;
+    user?: UserContext | null;
     children?: unknown;
 };
 
 export function Layout(props: LayoutProps) {
     const title = props.title ?? "3D Technology Services - Project Manager";
+    const isAdmin = !!props.user?.isAdmin;
     return (
         <html lang="en">
             <head>
@@ -26,8 +29,15 @@ export function Layout(props: LayoutProps) {
                         </a>
                         <nav class="nav">
                             <a href="/">Projects</a>
-                            <a href="/labor-manual">Labor Manual</a>
-                            <a href="/templates">Templates</a>
+                            {isAdmin ? <a href="/labor-manual">Labor Manual</a> : null}
+                            {isAdmin ? <a href="/templates">Templates</a> : null}
+                            {isAdmin ? <a href="/admins">Admins</a> : null}
+                            {props.user?.email ? (
+                                <span class="nav-user">
+                                    {props.user.email}
+                                    {isAdmin ? <span class="role-badge admin">admin</span> : <span class="role-badge crew">crew</span>}
+                                </span>
+                            ) : null}
                         </nav>
                     </div>
                 </header>

@@ -60,6 +60,12 @@ export type BomTemplate = {
     created_at: string;
 };
 
+export type AdminUser = {
+    email: string;
+    note: string | null;
+    created_at: string;
+};
+
 export function normalize(s: string | null | undefined): string {
     return (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }

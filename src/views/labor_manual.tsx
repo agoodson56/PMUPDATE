@@ -1,16 +1,19 @@
 import { Layout } from "./layout";
 import type { LaborManualEntry } from "../db";
 import type { Flash } from "../flash";
+import type { UserContext } from "../auth";
 
 export function LaborManualView({
     rows,
     flash,
+    user,
 }: {
     rows: LaborManualEntry[];
     flash: Flash | null;
+    user: UserContext;
 }) {
     return (
-        <Layout title="Labor Manual · 3DTS Project Manager" flash={flash}>
+        <Layout title="Labor Manual · 3DTS Project Manager" flash={flash} user={user}>
             <section class="header-row">
                 <div>
                     <h1>Office Installation Hours Manual</h1>

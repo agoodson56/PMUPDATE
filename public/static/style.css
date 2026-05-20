@@ -64,6 +64,26 @@ body {
     font-weight: 500;
 }
 .nav a:hover { opacity: 1; text-decoration: underline; }
+.nav-user {
+    color: white;
+    margin-left: 24px;
+    font-size: 13px;
+    opacity: 0.85;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.role-badge {
+    background: rgba(255, 255, 255, 0.18);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.role-badge.admin { background: var(--gold); color: var(--black); }
+.role-badge.crew { background: rgba(255, 255, 255, 0.18); color: white; }
 
 main { padding: 28px 0 60px; min-height: calc(100vh - 130px); }
 

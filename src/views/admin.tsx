@@ -1,6 +1,7 @@
 import { Layout } from "./layout";
 import type { Project } from "../db";
 import type { Flash } from "../flash";
+import type { UserContext } from "../auth";
 
 export type AdminRow = {
     id: number;
@@ -35,14 +36,16 @@ export function Admin({
     rows,
     totals,
     flash,
+    user,
 }: {
     project: Project;
     rows: AdminRow[];
     totals: AdminTotals;
     flash: Flash | null;
+    user: UserContext;
 }) {
     return (
-        <Layout title={`${project.name} · Summary`} flash={flash}>
+        <Layout title={`${project.name} · Summary`} flash={flash} user={user}>
             <nav class="breadcrumbs">
                 <a href="/">Projects</a> / <span>{project.name}</span> / Summary
             </nav>

@@ -6,6 +6,7 @@ import type {
     LaborManualEntry,
     PendingUpload,
     BomTemplate,
+    AdminUser,
 } from "./db";
 import { lookupLaborHours, normalize } from "./db";
 import {
@@ -17,18 +18,32 @@ import {
     type Grid,
 } from "./parsers";
 import { consumeFlash, setFlash } from "./flash";
+import {
+    populateUser,
+    adminOnly,
+    type UserContext,
+} from "./auth";
 import { Dashboard } from "./views/dashboard";
 import { Daily } from "./views/daily";
 import { Admin, type AdminRow, type AdminTotals } from "./views/admin";
 import { LaborManualView } from "./views/labor_manual";
 import { MapView } from "./views/map";
 import { TemplatesView } from "./views/templates";
+import { AdminsView } from "./views/admins";
 
 type Bindings = {
     DB: D1Database;
 };
 
-const app = new Hono<{ Bindings: Bindings }>();
+type AppEnv = {
+    Bindings: Bindings;
+    Variables: { user: UserContext };
+};
+
+const app = new Hono<AppEnv>();
+
+// Populate c.var.user on every request from the CF-Access header.
+app.use("*", populateUser);
 
 // ---------- Helpers ----------
 
@@ -67,10 +82,12 @@ app.get("/", async c => {
         .prepare("SELECT * FROM projects ORDER BY datetime(created_at) DESC")
         .all<Project>();
     const flash = consumeFlash(c);
-    return htmlResponse(<Dashboard projects={res.results ?? []} flash={flash} />);
+    return htmlResponse(
+        <Dashboard projects={res.results ?? []} flash={flash} user={c.var.user} />,
+    );
 });
 
-app.post("/projects", async c => {
+app.post("/projects", adminOnly, async c => {
     const form = await c.req.formData();
     const name = String(form.get("name") ?? "").trim();
     const pm_name = String(form.get("pm_name") ?? "").trim();
@@ -117,7 +134,7 @@ app.post("/projects", async c => {
     return c.redirect(`/projects/map/${uuid}`);
 });
 
-app.get("/projects/map/:uuid", async c => {
+app.get("/projects/map/:uuid", adminOnly, async c => {
     const uuid = c.req.param("uuid");
     const pending = await c.env.DB
         .prepare("SELECT * FROM pending_uploads WHERE id = ?")
@@ -140,11 +157,12 @@ app.get("/projects/map/:uuid", async c => {
             mapping={mapping}
             templates={templatesRes.results ?? []}
             flash={flash}
+            user={c.var.user}
         />,
     );
 });
 
-app.post("/projects/map/:uuid", async c => {
+app.post("/projects/map/:uuid", adminOnly, async c => {
     const uuid = c.req.param("uuid");
     const pending = await c.env.DB
         .prepare("SELECT * FROM pending_uploads WHERE id = ?")
@@ -259,17 +277,17 @@ app.post("/projects/map/:uuid", async c => {
     return c.redirect("/");
 });
 
-app.get("/templates", async c => {
+app.get("/templates", adminOnly, async c => {
     const res = await c.env.DB
         .prepare("SELECT * FROM bom_templates ORDER BY name")
         .all<BomTemplate>();
     const flash = consumeFlash(c);
     return htmlResponse(
-        <TemplatesView templates={res.results ?? []} flash={flash} />,
+        <TemplatesView templates={res.results ?? []} flash={flash} user={c.var.user} />,
     );
 });
 
-app.post("/templates/:id/delete", async c => {
+app.post("/templates/:id/delete", adminOnly, async c => {
     await c.env.DB
         .prepare("DELETE FROM bom_templates WHERE id = ?")
         .bind(Number(c.req.param("id")))
@@ -278,7 +296,7 @@ app.post("/templates/:id/delete", async c => {
     return c.redirect("/templates");
 });
 
-app.post("/project/:id/delete", async c => {
+app.post("/project/:id/delete", adminOnly, async c => {
     const id = Number(c.req.param("id"));
     await c.env.DB.prepare("DELETE FROM projects WHERE id = ?").bind(id).run();
     setFlash(c, "success", "Project deleted.");
@@ -323,6 +341,7 @@ app.get("/project/:id/daily", async c => {
             history={histRes.results ?? []}
             today={todayIso()}
             flash={flash}
+            user={c.var.user}
         />,
     );
 });
@@ -374,7 +393,7 @@ app.post("/project/:id/daily", async c => {
     return c.redirect(`/project/${id}/daily`);
 });
 
-app.get("/project/:id/admin", async c => {
+app.get("/project/:id/admin", adminOnly, async c => {
     const id = Number(c.req.param("id"));
     const project = await getProject(c.env.DB, id);
     if (!project) return c.notFound();
@@ -427,10 +446,12 @@ app.get("/project/:id/admin", async c => {
     };
 
     const flash = consumeFlash(c);
-    return htmlResponse(<Admin project={project} rows={rows} totals={totals} flash={flash} />);
+    return htmlResponse(
+        <Admin project={project} rows={rows} totals={totals} flash={flash} user={c.var.user} />,
+    );
 });
 
-app.post("/project/:id/update", async c => {
+app.post("/project/:id/update", adminOnly, async c => {
     const id = Number(c.req.param("id"));
     const form = await c.req.formData();
     const bid = toFloat(form.get("bid_labor_hours"));
@@ -442,7 +463,7 @@ app.post("/project/:id/update", async c => {
     return c.redirect(`/project/${id}/admin`);
 });
 
-app.post("/project/:id/rematch-labor", async c => {
+app.post("/project/:id/rematch-labor", adminOnly, async c => {
     const id = Number(c.req.param("id"));
     const project = await c.env.DB.prepare(
         "SELECT id FROM projects WHERE id = ?",
@@ -487,7 +508,7 @@ app.post("/project/:id/rematch-labor", async c => {
     return c.redirect(`/project/${id}/admin`);
 });
 
-app.post("/project/:id/bom-item/:bomId", async c => {
+app.post("/project/:id/bom-item/:bomId", adminOnly, async c => {
     const id = Number(c.req.param("id"));
     const bomId = Number(c.req.param("bomId"));
     const form = await c.req.formData();
@@ -507,15 +528,17 @@ app.post("/project/:id/bom-item/:bomId", async c => {
     return c.redirect(`/project/${id}/admin`);
 });
 
-app.get("/labor-manual", async c => {
+app.get("/labor-manual", adminOnly, async c => {
     const res = await c.env.DB
         .prepare("SELECT * FROM labor_manual ORDER BY category, material_pattern")
         .all<LaborManualEntry>();
     const flash = consumeFlash(c);
-    return htmlResponse(<LaborManualView rows={res.results ?? []} flash={flash} />);
+    return htmlResponse(
+        <LaborManualView rows={res.results ?? []} flash={flash} user={c.var.user} />,
+    );
 });
 
-app.post("/labor-manual", async c => {
+app.post("/labor-manual", adminOnly, async c => {
     const form = await c.req.formData();
     const pattern = String(form.get("material_pattern") ?? "").trim();
     const hours = toFloat(form.get("hours_per_unit"));
@@ -538,10 +561,56 @@ app.post("/labor-manual", async c => {
     return c.redirect("/labor-manual");
 });
 
-app.post("/labor-manual/:id/delete", async c => {
+app.post("/labor-manual/:id/delete", adminOnly, async c => {
     const id = Number(c.req.param("id"));
     await c.env.DB.prepare("DELETE FROM labor_manual WHERE id = ?").bind(id).run();
     return c.redirect("/labor-manual");
+});
+
+// ---------- Admin user management ----------
+
+app.get("/admins", adminOnly, async c => {
+    const res = await c.env.DB
+        .prepare("SELECT * FROM admin_users ORDER BY datetime(created_at)")
+        .all<AdminUser>();
+    const flash = consumeFlash(c);
+    return htmlResponse(
+        <AdminsView admins={res.results ?? []} flash={flash} user={c.var.user} />,
+    );
+});
+
+app.post("/admins", adminOnly, async c => {
+    const form = await c.req.formData();
+    const email = String(form.get("email") ?? "").trim().toLowerCase();
+    const note = String(form.get("note") ?? "").trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setFlash(c, "error", "Please enter a valid email address.");
+        return c.redirect("/admins");
+    }
+    await c.env.DB.prepare(`
+        INSERT INTO admin_users (email, note) VALUES (?, ?)
+        ON CONFLICT(email) DO UPDATE SET note = excluded.note
+    `).bind(email, note || null).run();
+    setFlash(c, "success", `Granted admin to ${email}.`);
+    return c.redirect("/admins");
+});
+
+app.post("/admins/:email/delete", adminOnly, async c => {
+    const email = decodeURIComponent(c.req.param("email")).toLowerCase();
+    if (email === c.var.user.email) {
+        setFlash(c, "error", "You can't remove your own admin access.");
+        return c.redirect("/admins");
+    }
+    const countRow = await c.env.DB
+        .prepare("SELECT COUNT(*) AS n FROM admin_users")
+        .first<{ n: number }>();
+    if (countRow && countRow.n <= 1) {
+        setFlash(c, "error", "Cannot remove the last admin.");
+        return c.redirect("/admins");
+    }
+    await c.env.DB.prepare("DELETE FROM admin_users WHERE email = ?").bind(email).run();
+    setFlash(c, "success", `Revoked admin from ${email}.`);
+    return c.redirect("/admins");
 });
 
 // Keep linter quiet about unused import

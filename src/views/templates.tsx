@@ -1,16 +1,19 @@
 import { Layout } from "./layout";
 import type { BomTemplate } from "../db";
 import type { Flash } from "../flash";
+import type { UserContext } from "../auth";
 
 export function TemplatesView({
     templates,
     flash,
+    user,
 }: {
     templates: BomTemplate[];
     flash: Flash | null;
+    user: UserContext;
 }) {
     return (
-        <Layout title="BOM Templates · 3DTS Project Manager" flash={flash}>
+        <Layout title="BOM Templates · 3DTS Project Manager" flash={flash} user={user}>
             <section class="header-row">
                 <div>
                     <h1>BOM Column Templates</h1>
