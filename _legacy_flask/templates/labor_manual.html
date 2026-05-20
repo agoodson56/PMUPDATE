@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Labor Manual{% endblock %}
+{% block content %}
+<section class="header-row">
+    <div>
+        <h1>Office Installation Hours Manual</h1>
+        <p class="muted">Labor hours per unit for known materials. BOM uploads match by name (case-insensitive, partial match).</p>
+    </div>
+</section>
+
+<form method="post" action="{{ url_for('save_labor_manual') }}" class="inline-form">
+    <label>Material Pattern
+        <input type="text" name="material_pattern" required placeholder="e.g. 1/2 EMT Conduit">
+    </label>
+    <label>Hours / Unit
+        <input type="number" step="0.001" min="0" name="hours_per_unit" required>
+    </label>
+    <label>Category
+        <input type="text" name="category" placeholder="e.g. Conduit">
+    </label>
+    <label class="grow">Notes
+        <input type="text" name="notes">
+    </label>
+    <button class="btn btn-primary" type="submit">Add / Update</button>
+</form>
+
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Material</th>
+            <th class="num">Hrs / Unit</th>
+            <th>Category</th>
+            <th>Notes</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+        <tr>
+            <td>{{ r.material_pattern }}</td>
+            <td class="num">{{ '%.3f'|format(r.hours_per_unit) }}</td>
+            <td>{{ r.category or '' }}</td>
+            <td>{{ r.notes or '' }}</td>
+            <td>
+                <form method="post" action="{{ url_for('delete_labor_manual', lm_id=r.id) }}"
+                      onsubmit="return confirm('Delete this entry?');" style="display:inline">
+                    <button class="btn btn-ghost" type="submit">Delete</button>
+                </form>
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="5" class="muted">No labor manual entries yet. Add entries above, or let BOM uploads flag items as <em>Needs Review</em>.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+    <div>
+        <h1>Projects</h1>
+        <p class="muted">Upload a BOM to start tracking a project.</p>
+    </div>
+    <button class="btn btn-primary" onclick="openModal()">+ New Project / Upload BOM</button>
+</section>
+
+{% if projects %}
+<div class="card-grid">
+    {% for p in projects %}
+    <div class="card">
+        <div class="card-head">
+            <h3>{{ p.name }}</h3>
+            <span class="badge badge-{{ p.status|lower }}">{{ p.status }}</span>
+        </div>
+        <dl class="card-meta">
+            <dt>PM</dt><dd>{{ p.pm_name }}</dd>
+            <dt>Uploaded</dt><dd>{{ p.created_at[:10] }}</dd>
+            <dt>Bid Hours</dt><dd>{{ '%.1f'|format(p.bid_labor_hours) }}</dd>
+            {% if p.file_name %}<dt>BOM File</dt><dd class="truncate">{{ p.file_name }}</dd>{% endif %}
+        </dl>
+        <div class="card-actions">
+            <a href="{{ url_for('daily', project_id=p.id) }}" class="btn btn-primary">Daily Entry</a>
+            <a href="{{ url_for('admin', project_id=p.id) }}" class="btn btn-secondary">Summary</a>
+            <form method="post"
+                  action="{{ url_for('delete_project', project_id=p.id) }}"
+                  onsubmit="return confirm('Delete this project and all its data? This cannot be undone.');"
+                  style="display:inline">
+                <button class="btn btn-ghost" type="submit">Delete</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+    <p><strong>No projects yet.</strong></p>
+    <p class="muted">Click <em>New Project / Upload BOM</em> to get started.</p>
+</div>
+{% endif %}
+
+<div id="upload-modal" class="modal" onclick="if(event.target===this) closeModal()">
+    <div class="modal-inner">
+        <h2>New Project</h2>
+        <form method="post" action="{{ url_for('create_project') }}" enctype="multipart/form-data">
+            <label>Project Name
+                <input type="text" name="name" required autofocus placeholder="e.g. Riverside Hospital Phase 2">
+            </label>
+            <label>PM Name
+                <input type="text" name="pm_name" required placeholder="e.g. Jane Smith">
+            </label>
+            <label>Bid Labor Hours
+                <input type="number" name="bid_labor_hours" step="0.1" min="0" value="0" required>
+            </label>
+            <label>BOM File <span class="muted">(.xlsx, .csv, .pdf)</span>
+                <input type="file" name="bom_file" accept=".xlsx,.csv,.pdf" required>
+            </label>
+            <div class="actions">
+                <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Project</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function openModal(){ document.getElementById('upload-modal').classList.add('open'); }
+    function closeModal(){ document.getElementById('upload-modal').classList.remove('open'); }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
+{% endblock %}

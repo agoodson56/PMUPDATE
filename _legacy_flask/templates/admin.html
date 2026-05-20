@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} - Summary{% endblock %}
+{% block content %}
+<nav class="breadcrumbs">
+    <a href="{{ url_for('dashboard') }}">Projects</a> / <span>{{ project.name }}</span> / Summary
+</nav>
+
+<section class="header-row">
+    <div>
+        <h1>{{ project.name }}</h1>
+        <p class="muted">PM: <strong>{{ project.pm_name }}</strong> &nbsp;&middot;&nbsp; Status:
+            <span class="badge badge-{{ project.status|lower }}">{{ project.status }}</span>
+        </p>
+    </div>
+    <div class="actions">
+        <a href="{{ url_for('daily', project_id=project.id) }}" class="btn btn-secondary">Daily Entry</a>
+    </div>
+</section>
+
+<form method="post" action="{{ url_for('update_project', project_id=project.id) }}" class="inline-form">
+    <label>Bid Labor Hours
+        <input type="number" name="bid_labor_hours" step="0.1" min="0" value="{{ '%.2f'|format(project.bid_labor_hours) }}">
+    </label>
+    <label>Status
+        <select name="status">
+            {% for s in ['Active','Hold','Complete'] %}
+                <option value="{{ s }}" {% if project.status==s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <button class="btn btn-secondary">Update Project</button>
+</form>
+
+<h2>Project Totals</h2>
+<div class="kpi-grid">
+    <div class="kpi">
+        <div class="kpi-label">Total Material Cost</div>
+        <div class="kpi-value">${{ '%.2f'|format(totals.material_cost) }}</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label">Total Labor Book Hours</div>
+        <div class="kpi-value">{{ '%.2f'|format(totals.labor_book_hours) }}</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label">Installed Labor (Book) Hours</div>
+        <div class="kpi-value">{{ '%.2f'|format(totals.installed_labor_hours) }}</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label">Actual Field Hours</div>
+        <div class="kpi-value">{{ '%.2f'|format(totals.actual_field_hours) }}</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label">Bid Labor Hours</div>
+        <div class="kpi-value">{{ '%.2f'|format(project.bid_labor_hours) }}</div>
+    </div>
+    <div class="kpi {{ 'pos' if totals.labor_book_vs_bid <= 0 else 'neg' }}">
+        <div class="kpi-label">Labor Book &minus; Bid</div>
+        <div class="kpi-value">{{ '%+.2f'|format(totals.labor_book_vs_bid) }} h</div>
+    </div>
+    <div class="kpi {{ 'pos' if totals.actual_vs_bid <= 0 else 'neg' }}">
+        <div class="kpi-label">Actual &minus; Bid</div>
+        <div class="kpi-value">{{ '%+.2f'|format(totals.actual_vs_bid) }} h</div>
+    </div>
+    <div class="kpi {{ 'pos' if totals.actual_vs_labor_book <= 0 else 'neg' }}">
+        <div class="kpi-label">Actual &minus; Installed Labor Book</div>
+        <div class="kpi-value">{{ '%+.2f'|format(totals.actual_vs_labor_book) }} h</div>
+    </div>
+</div>
+
+<h2>Material &amp; Labor Breakdown</h2>
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Material</th>
+            <th class="num">Unit $</th>
+            <th class="num">BOM Qty</th>
+            <th class="num">Material Total</th>
+            <th class="num">Hrs / Unit</th>
+            <th class="num">Labor Book Hrs</th>
+            <th class="num">Installed</th>
+            <th class="num">Installed Labor Hrs</th>
+            <th class="num">Remaining</th>
+            <th class="num">Remaining Labor Hrs</th>
+            <th>Edit</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+        <tr {% if r.needs_review %}class="warn"{% endif %}>
+            <td>
+                {{ r.material }}
+                {% if r.needs_review %}<span class="badge badge-warn">Needs Review</span>{% endif %}
+            </td>
+            <td class="num">${{ '%.2f'|format(r.unit_price) }}</td>
+            <td class="num">{{ '%.2f'|format(r.bom_qty) }}</td>
+            <td class="num">${{ '%.2f'|format(r.line_material_cost) }}</td>
+            <td class="num">{{ '%.3f'|format(r.hours_per_unit) }}</td>
+            <td class="num">{{ '%.2f'|format(r.labor_book_hours) }}</td>
+            <td class="num">{{ '%.2f'|format(r.installed) }}</td>
+            <td class="num">{{ '%.2f'|format(r.installed_labor_hours) }}</td>
+            <td class="num {{ 'neg' if r.remaining_qty < 0 else '' }}">{{ '%.2f'|format(r.remaining_qty) }}</td>
+            <td class="num">{{ '%.2f'|format(r.remaining_labor_hours) }}</td>
+            <td>
+                <details>
+                    <summary>Edit</summary>
+                    <form method="post" action="{{ url_for('update_bom_item', project_id=project.id, bom_id=r.id) }}">
+                        <label class="micro">Unit $
+                            <input type="number" name="unit_price" step="0.01" min="0" value="{{ '%.2f'|format(r.unit_price) }}">
+                        </label>
+                        <label class="micro">Hrs / Unit
+                            <input type="number" name="hours_per_unit" step="0.001" min="0" value="{{ '%.3f'|format(r.hours_per_unit) }}">
+                        </label>
+                        <button class="btn btn-secondary" type="submit">Save</button>
+                    </form>
+                </details>
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="11" class="muted">No BOM items.</td></tr>
+    {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr>
+            <th>Totals</th>
+            <th></th>
+            <th></th>
+            <th class="num">${{ '%.2f'|format(totals.material_cost) }}</th>
+            <th></th>
+            <th class="num">{{ '%.2f'|format(totals.labor_book_hours) }}</th>
+            <th class="num">{{ '%.2f'|format(totals.installed_qty) }}</th>
+            <th class="num">{{ '%.2f'|format(totals.installed_labor_hours) }}</th>
+            <th></th>
+            <th class="num">{{ '%.2f'|format(totals.labor_book_hours - totals.installed_labor_hours) }}</th>
+            <th></th>
+        </tr>
+    </tfoot>
+</table>
+{% endblock %}

@@ -1,0 +1,20 @@
+name = "pm-tracker"
+main = "src/index.tsx"
+compatibility_date = "2024-09-25"
+compatibility_flags = ["nodejs_compat"]
+
+# Static files (CSS, JS) served directly from /public
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Cloudflare D1 (SQLite) database. Run `npm run db:create` to provision,
+# then paste the database_id returned by Cloudflare here.
+[[d1_databases]]
+binding = "DB"
+database_name = "pm-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true
