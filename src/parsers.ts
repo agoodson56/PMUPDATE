@@ -7,104 +7,52 @@ export type ParsedItem = {
     hours_per_unit: number | null;
 };
 
+export type GridRow = (string | number | null)[];
+export type GridSheet = GridRow[];
+export type Grid = { [sheetName: string]: GridSheet };
+
+export type Mapping = {
+    sheetName: string;
+    headerRow: number;       // 0-based index of the header row in the sheet
+    materialCol: number;     // 0-based column index
+    qtyCol: number;
+    priceCol: number;        // -1 = none
+    unitCol: number;         // -1 = none
+    hoursCol: number;        // -1 = none
+    skipPatterns: string[];  // regex source strings, case-insensitive
+};
+
+export const DEFAULT_SKIP_PATTERNS: string[] = [
+    "^subtotal\\b",
+    "^total\\b",
+    "^grand total\\b",
+    "^bid price\\b",
+    "^pricing summary\\b",
+    "^material( & equipment)? subtotal\\b",
+    "^total line items\\b",
+    "^\\d+\\s*$",
+];
+
+// ---------- shared helpers ----------
+
 function norm(s: string | null | undefined): string {
-    return (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return (s ?? "").toString().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function toFloat(v: unknown, def = 0): number {
     if (v === null || v === undefined || v === "") return def;
     const s = String(v).replace(/[^0-9.\-]/g, "");
-    if (s === "" || s === "-" || s === ".") return def;
+    if (!s || s === "-" || s === ".") return def;
     const n = parseFloat(s);
     return Number.isFinite(n) ? n : def;
 }
 
-function findCol(headers: string[], candidates: string[]): string | null {
-    const normMap = new Map<string, string>();
-    for (const h of headers) {
-        if (h) normMap.set(norm(h), h);
-    }
-    // Exact match first.
-    for (const c of candidates) {
-        const nc = norm(c);
-        if (normMap.has(nc)) return normMap.get(nc)!;
-    }
-    // Partial match: header must CONTAIN the candidate, not the reverse.
-    // (Reverse direction caused false positives like "hours per unit"
-    // matching a column literally named "Unit".)
-    for (const c of candidates) {
-        const nc = norm(c);
-        if (!nc) continue;
-        for (const [hn, h] of normMap.entries()) {
-            if (hn && hn.includes(nc)) return h;
-        }
-    }
-    return null;
+function cellStr(v: unknown): string {
+    if (v === null || v === undefined) return "";
+    return String(v);
 }
 
-// Skip rows whose "material" cell is actually a section header, subtotal,
-// pricing summary line, or other non-line-item content.
-const SKIP_PATTERNS: RegExp[] = [
-    /^subtotal\b/i,
-    /^total\b/i,
-    /^grand total\b/i,
-    /^bid price\b/i,
-    /^pricing summary\b/i,
-    /^material( & equipment)? subtotal\b/i,
-    /^total line items\b/i,
-    /^\d+\s*$/, // bare row numbers
-];
-
-function shouldSkip(material: string): boolean {
-    const trimmed = material.trim();
-    if (!trimmed) return true;
-    return SKIP_PATTERNS.some(re => re.test(trimmed));
-}
-
-function parseRows(
-    headers: string[],
-    rows: Record<string, unknown>[],
-): ParsedItem[] {
-    // Candidates ordered most-specific first so multi-word headers match before
-    // single-word ones (e.g. "Item / Description" before "Part #").
-    const matCol = findCol(headers, [
-        "item / description", "item description", "material description",
-        "material name", "description", "material", "item", "product",
-    ]);
-    const qtyCol = findCol(headers, ["qty", "quantity", "count"]);
-    const priceCol = findCol(headers, [
-        "unit cost ($)", "unit cost", "unit price", "price", "cost",
-    ]);
-    const hoursCol = findCol(headers, [
-        "hours per unit", "hrs per unit", "labor hours", "hours", "hrs", "labor",
-    ]);
-    const unitCol = findCol(headers, ["unit", "uom", "units"]);
-
-    const items: ParsedItem[] = [];
-    for (const row of rows) {
-        const material = matCol ? row[matCol] : null;
-        if (material === null || material === undefined) continue;
-        const matStr = String(material).trim();
-        if (matStr === "") continue;
-        if (shouldSkip(matStr)) continue;
-
-        // If a Unit column exists in this BOM, real line items have a non-empty
-        // unit (ea / ft / lot / etc). Pricing-summary, category-header, and
-        // total rows leave it blank — drop them.
-        if (unitCol) {
-            const unit = String(row[unitCol] ?? "").trim();
-            if (unit === "") continue;
-        }
-
-        items.push({
-            material: matStr,
-            bom_qty: toFloat(qtyCol ? row[qtyCol] : null),
-            unit_price: toFloat(priceCol ? row[priceCol] : null),
-            hours_per_unit: hoursCol ? toFloat(row[hoursCol]) : null,
-        });
-    }
-    return items;
-}
+// ---------- format-specific readers (produce a Grid) ----------
 
 function parseCsvLine(line: string): string[] {
     const out: string[] = [];
@@ -127,128 +75,197 @@ function parseCsvLine(line: string): string[] {
     return out.map(s => s.trim());
 }
 
-export async function parseCsv(file: File): Promise<ParsedItem[]> {
+async function readCsv(file: File): Promise<Grid> {
     const text = (await file.text()).replace(/^﻿/, "");
-    const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
-    if (lines.length === 0) return [];
-    const headers = parseCsvLine(lines[0]);
-    const rows: Record<string, string>[] = [];
-    for (let i = 1; i < lines.length; i++) {
-        const cells = parseCsvLine(lines[i]);
-        const obj: Record<string, string> = {};
-        headers.forEach((h, idx) => { obj[h] = cells[idx] ?? ""; });
-        rows.push(obj);
+    const lines = text.split(/\r?\n/);
+    const rows: GridSheet = [];
+    for (const line of lines) {
+        if (line.trim() === "" && rows.length === 0) continue;
+        rows.push(parseCsvLine(line));
     }
-    return parseRows(headers, rows);
+    return { "CSV": rows };
 }
 
-function pickBomSheet(sheetNames: string[]): string {
-    // Prefer a sheet whose name indicates it holds the actual BOM line items,
-    // not a metadata / summary / exclusions sheet.
+async function readXlsx(file: File): Promise<Grid> {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const grid: Grid = {};
+    for (const name of wb.SheetNames) {
+        const ws = wb.Sheets[name];
+        const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+            header: 1,
+            blankrows: false,
+            defval: "",
+        });
+        grid[name] = aoa.map(r =>
+            (r as unknown[]).map(c => {
+                if (c === null || c === undefined) return "";
+                if (typeof c === "number") return c;
+                return String(c);
+            }),
+        );
+    }
+    return grid;
+}
+
+async function readPdf(file: File): Promise<Grid> {
+    const { extractText } = await import("unpdf");
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const result = await extractText(buf, { mergePages: true });
+    const text = Array.isArray(result.text) ? result.text.join("\n") : result.text;
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // PDF tabular extraction is best-effort: split on 2+ spaces or tabs.
+    const rows: GridSheet = lines.map(l =>
+        l.split(/\s{2,}|\t+/).map(s => s.trim()),
+    );
+    return { "PDF": rows };
+}
+
+export async function parseFileToGrid(file: File): Promise<Grid> {
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".csv")) return readCsv(file);
+    if (name.endsWith(".xlsx")) return readXlsx(file);
+    if (name.endsWith(".pdf")) return readPdf(file);
+    throw new Error(`Unsupported file type: ${file.name}`);
+}
+
+// ---------- auto-detect best mapping ----------
+
+const MATERIAL_KEYWORDS = [
+    "item / description", "item description", "material description",
+    "material name", "description", "material", "item", "product",
+];
+const QTY_KEYWORDS = ["qty", "quantity", "count"];
+const PRICE_KEYWORDS = ["unit cost", "unit price", "price", "cost"];
+const UNIT_KEYWORDS = ["unit", "uom", "units"];
+const HOURS_KEYWORDS = [
+    "hours per unit", "hrs per unit", "labor hours", "hours", "hrs", "labor",
+];
+
+function findColIdx(headers: string[], candidates: string[]): number {
+    const normHeaders = headers.map(h => norm(h));
+    // Exact first.
+    for (const c of candidates) {
+        const nc = norm(c);
+        const i = normHeaders.indexOf(nc);
+        if (i >= 0) return i;
+    }
+    // Partial: header contains candidate (not the reverse).
+    for (const c of candidates) {
+        const nc = norm(c);
+        if (!nc) continue;
+        for (let i = 0; i < normHeaders.length; i++) {
+            if (normHeaders[i] && normHeaders[i].includes(nc)) return i;
+        }
+    }
+    return -1;
+}
+
+function pickBomSheet(grid: Grid): string {
+    const names = Object.keys(grid);
+    if (names.length === 0) return "";
     const preferred = [
         "bill of materials", "bom", "materials", "parts list",
         "line items", "items", "parts",
     ];
-    const lower = sheetNames.map(n => n.toLowerCase());
+    const lower = names.map(n => n.toLowerCase());
     for (const p of preferred) {
         for (let i = 0; i < lower.length; i++) {
-            if (lower[i].includes(p)) return sheetNames[i];
+            if (lower[i].includes(p)) return names[i];
         }
     }
-    return sheetNames[0];
+    return names[0];
 }
 
-function findHeaderRow(aoa: unknown[][]): number {
-    // The header row is the one with a Qty-like cell AND a description/item-like
-    // cell. Title rows ("DETAILED BILL OF MATERIALS"), subtitles, and metadata
-    // rows fail this test and get skipped.
-    const max = Math.min(aoa.length, 60);
+function findHeaderRowIdx(sheet: GridSheet): number {
+    const max = Math.min(sheet.length, 60);
     for (let i = 0; i < max; i++) {
-        const cells = (aoa[i] ?? []).map(c => String(c ?? "").toLowerCase().trim());
+        const cells = (sheet[i] ?? []).map(c =>
+            cellStr(c).toLowerCase().trim(),
+        );
         const hasQty = cells.some(c => /^(qty|quantity|count)$/.test(c));
         const hasItem = cells.some(c =>
-            /(item|description|material|product)/.test(c)
+            /(item|description|material|product)/.test(c),
         );
         if (hasQty && hasItem) return i;
     }
     return -1;
 }
 
-export async function parseXlsx(file: File): Promise<ParsedItem[]> {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array" });
-    if (wb.SheetNames.length === 0) return [];
-    const sheetName = pickBomSheet(wb.SheetNames);
-    const ws = wb.Sheets[sheetName];
-    const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, {
-        header: 1,
-        blankrows: false,
-        defval: "",
-    });
-    if (aoa.length === 0) return [];
+export function autoDetectMapping(grid: Grid): Mapping | null {
+    const sheetName = pickBomSheet(grid);
+    if (!sheetName) return null;
+    const sheet = grid[sheetName];
+    if (!sheet || sheet.length === 0) return null;
 
-    let headerIdx = findHeaderRow(aoa);
-    if (headerIdx < 0) {
-        // Fall back to the first non-empty row.
-        for (let i = 0; i < aoa.length; i++) {
-            const r = aoa[i] as unknown[];
-            if (r.some(c => c !== null && c !== undefined && String(c).trim() !== "")) {
-                headerIdx = i;
+    let headerRow = findHeaderRowIdx(sheet);
+    if (headerRow < 0) {
+        // Fall back to first non-empty row.
+        for (let i = 0; i < sheet.length; i++) {
+            if (sheet[i].some(c => cellStr(c).trim() !== "")) {
+                headerRow = i;
                 break;
             }
         }
     }
-    if (headerIdx < 0) return [];
+    if (headerRow < 0) return null;
 
-    const headers = (aoa[headerIdx] as unknown[]).map(c => String(c ?? "").trim());
-    const rows: Record<string, unknown>[] = [];
-    for (let i = headerIdx + 1; i < aoa.length; i++) {
-        const r = aoa[i] as unknown[];
-        const obj: Record<string, unknown> = {};
-        headers.forEach((h, idx) => { obj[h] = r[idx]; });
-        rows.push(obj);
-    }
-    return parseRows(headers, rows);
+    const headers = (sheet[headerRow] ?? []).map(c => cellStr(c).trim());
+
+    return {
+        sheetName,
+        headerRow,
+        materialCol: findColIdx(headers, MATERIAL_KEYWORDS),
+        qtyCol: findColIdx(headers, QTY_KEYWORDS),
+        priceCol: findColIdx(headers, PRICE_KEYWORDS),
+        unitCol: findColIdx(headers, UNIT_KEYWORDS),
+        hoursCol: findColIdx(headers, HOURS_KEYWORDS),
+        skipPatterns: DEFAULT_SKIP_PATTERNS,
+    };
 }
 
-export async function parsePdf(file: File): Promise<ParsedItem[]> {
-    // unpdf works in edge runtimes (uses pdfjs-dist internally)
-    const { extractText } = await import("unpdf");
-    const buf = new Uint8Array(await file.arrayBuffer());
-    const result = await extractText(buf, { mergePages: true });
-    const text = Array.isArray(result.text) ? result.text.join("\n") : result.text;
-    return parsePdfLines(text.split(/\r?\n/).map(l => l.trim()).filter(Boolean));
-}
+// ---------- apply mapping to grid ----------
 
-function parsePdfLines(lines: string[]): ParsedItem[] {
-    // Best-effort table extraction from PDF text. PDF parsing is fragile;
-    // works for simple tabular BOMs with whitespace-separated columns.
-    let headerIdx = -1;
-    let headerCols: string[] = [];
-    for (let i = 0; i < lines.length; i++) {
-        const l = lines[i].toLowerCase();
-        if (/material|description|item|part/.test(l) && /qty|quantity/.test(l)) {
-            headerIdx = i;
-            headerCols = lines[i].split(/\s{2,}|\t+/).map(s => s.trim()).filter(Boolean);
-            break;
-        }
-    }
-    if (headerIdx < 0 || headerCols.length < 2) return [];
-    const rows: Record<string, string>[] = [];
-    for (let i = headerIdx + 1; i < lines.length; i++) {
-        const cells = lines[i].split(/\s{2,}|\t+/).map(s => s.trim());
-        if (cells.filter(Boolean).length < 2) continue;
-        const obj: Record<string, string> = {};
-        headerCols.forEach((h, idx) => { obj[h] = cells[idx] ?? ""; });
-        rows.push(obj);
-    }
-    return parseRows(headerCols, rows);
-}
-
+// Backwards-compatible wrapper used by the upload route until the
+// explicit column-mapping UI is built.
 export async function parseBom(file: File): Promise<ParsedItem[]> {
-    const name = file.name.toLowerCase();
-    if (name.endsWith(".csv")) return parseCsv(file);
-    if (name.endsWith(".xlsx")) return parseXlsx(file);
-    if (name.endsWith(".pdf")) return parsePdf(file);
-    throw new Error(`Unsupported file type: ${file.name}`);
+    const grid = await parseFileToGrid(file);
+    const mapping = autoDetectMapping(grid);
+    if (!mapping) return [];
+    return applyMapping(grid, mapping);
+}
+
+export function applyMapping(grid: Grid, mapping: Mapping): ParsedItem[] {
+    const sheet = grid[mapping.sheetName];
+    if (!sheet) return [];
+    if (mapping.materialCol < 0 || mapping.qtyCol < 0) return [];
+
+    const skipRes = mapping.skipPatterns.map(p => {
+        try { return new RegExp(p, "i"); } catch { return null; }
+    }).filter((r): r is RegExp => r !== null);
+
+    const items: ParsedItem[] = [];
+    for (let i = mapping.headerRow + 1; i < sheet.length; i++) {
+        const row = sheet[i] ?? [];
+        const matRaw = row[mapping.materialCol];
+        if (matRaw === null || matRaw === undefined) continue;
+        const material = String(matRaw).trim();
+        if (!material) continue;
+        if (skipRes.some(re => re.test(material))) continue;
+
+        // If a unit column was selected, require a non-empty unit cell
+        // (drops category-header rows and pricing-summary rows).
+        if (mapping.unitCol >= 0) {
+            const unit = cellStr(row[mapping.unitCol]).trim();
+            if (!unit) continue;
+        }
+
+        items.push({
+            material,
+            bom_qty: toFloat(row[mapping.qtyCol]),
+            unit_price: mapping.priceCol >= 0 ? toFloat(row[mapping.priceCol]) : 0,
+            hours_per_unit: mapping.hoursCol >= 0 ? toFloat(row[mapping.hoursCol]) : null,
+        });
+    }
+    return items;
 }

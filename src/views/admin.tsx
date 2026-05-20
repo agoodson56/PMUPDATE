@@ -80,6 +80,18 @@ export function Admin({
                 <button class="btn btn-secondary" type="submit">Update Project</button>
             </form>
 
+            <form
+                method="post"
+                action={`/project/${project.id}/rematch-labor`}
+                class="inline-form"
+                style="margin-top: -8px"
+            >
+                <span class="muted" style="flex: 1 1 auto; min-width: 0">
+                    Re-apply industry-standard labor hours from the Labor Manual to every BOM item that doesn't have hours yet (or whose entry has changed).
+                </span>
+                <button class="btn btn-secondary" type="submit">Re-match Labor from Manual</button>
+            </form>
+
             <h2>Project Totals</h2>
             <div class="kpi-grid">
                 <Kpi label="Total Material Cost" value={`$${totals.material_cost.toFixed(2)}`} />

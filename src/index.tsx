@@ -289,6 +289,51 @@ app.post("/project/:id/update", async c => {
     return c.redirect(`/project/${id}/admin`);
 });
 
+app.post("/project/:id/rematch-labor", async c => {
+    const id = Number(c.req.param("id"));
+    const project = await c.env.DB.prepare(
+        "SELECT id FROM projects WHERE id = ?",
+    ).bind(id).first();
+    if (!project) return c.notFound();
+
+    const items = await c.env.DB.prepare(
+        "SELECT id, material, hours_per_unit, needs_review FROM bom_items WHERE project_id = ?",
+    ).bind(id).all<{
+        id: number;
+        material: string;
+        hours_per_unit: number;
+        needs_review: number;
+    }>();
+
+    let matched = 0;
+    let unchanged = 0;
+    const updates: D1PreparedStatement[] = [];
+    const updateStmt = c.env.DB.prepare(
+        "UPDATE bom_items SET hours_per_unit = ?, needs_review = 0 WHERE id = ?",
+    );
+    for (const it of items.results ?? []) {
+        const found = await lookupLaborHours(c.env.DB, it.material);
+        if (found !== null && found !== it.hours_per_unit) {
+            updates.push(updateStmt.bind(found, it.id));
+            matched++;
+        } else if (found !== null && it.needs_review) {
+            // Same hours but flag still set — clear the flag.
+            updates.push(updateStmt.bind(found, it.id));
+            matched++;
+        } else {
+            unchanged++;
+        }
+    }
+    if (updates.length) await c.env.DB.batch(updates);
+
+    setFlash(
+        c,
+        "success",
+        `Re-matched against labor manual: ${matched} updated, ${unchanged} unchanged.`,
+    );
+    return c.redirect(`/project/${id}/admin`);
+});
+
 app.post("/project/:id/bom-item/:bomId", async c => {
     const id = Number(c.req.param("id"));
     const bomId = Number(c.req.param("bomId"));
