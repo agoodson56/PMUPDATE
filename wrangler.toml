@@ -1,15 +1,11 @@
 name = "pm-tracker"
-main = "src/index.tsx"
+pages_build_output_dir = "./public"
 compatibility_date = "2024-09-25"
 compatibility_flags = ["nodejs_compat"]
 
-# Static files (CSS, JS) served directly from /public
-[assets]
-directory = "./public"
-binding = "ASSETS"
-
-# Cloudflare D1 (SQLite) database. Run `npm run db:create` to provision,
-# then paste the database_id returned by Cloudflare here.
+# Cloudflare D1 (SQLite) database. After `wrangler d1 create pm-db`,
+# paste the returned database_id here. The same binding is consumed
+# by Pages Functions as env.DB.
 [[d1_databases]]
 binding = "DB"
 database_name = "pm-db"

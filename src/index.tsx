@@ -15,7 +15,6 @@ import { LaborManualView } from "./views/labor_manual";
 
 type Bindings = {
     DB: D1Database;
-    ASSETS: Fetcher;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();

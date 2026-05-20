@@ -2,7 +2,7 @@
 
 Online Project Manager for 3D Technology Services, Inc. — material BOM upload, daily install tracking, material/labor cost summaries, and bid vs. actual labor reporting.
 
-Built on **Cloudflare Workers + D1** (SQLite at the edge) with **Hono + JSX**. Single-binary deploy, runs globally, free tier eligible.
+Built on **Cloudflare Pages Functions + D1** (SQLite at the edge) with **Hono + JSX**. Git-connected auto-deploy, runs globally, free tier eligible.
 
 ---
 
@@ -14,7 +14,7 @@ Built on **Cloudflare Workers + D1** (SQLite at the edge) with **Hono + JSX**. S
 - A free Cloudflare account
 - Wrangler CLI (installed automatically via `npm install`)
 
-### One-time setup
+### One-time setup (do this once)
 
 ```bash
 # 1. Install dependencies
@@ -27,26 +27,34 @@ npx wrangler login
 npm run db:create
 ```
 
-The `db:create` step prints a `database_id`. **Paste that ID into `wrangler.toml`** in the `database_id` field.
+The `db:create` step prints a `database_id`. **Paste that ID into `wrangler.toml`** in the `database_id` field, then commit & push that change.
 
 ```bash
-# 4. Apply schema migrations (local + remote)
-npm run db:migrate:local
-npm run db:migrate
+# 4. Apply schema migrations
+npm run db:migrate:local      # local development
+npm run db:migrate            # remote (production) D1
 
 # 5. Run locally
 npm run dev
 ```
 
-Visit <http://localhost:8787>.
+Visit the URL Wrangler prints (typically <http://localhost:8788>).
 
 ### Deploy
 
-```bash
-npm run deploy
-```
+This repo is connected to Cloudflare Pages via Git. **Every push to `main` auto-deploys.**
 
-Wrangler prints your public URL (`https://pm-tracker.<your-subdomain>.workers.dev`). Add a custom domain in the Cloudflare dashboard if desired.
+In the Cloudflare Pages project settings, configure:
+
+| Setting             | Value                  |
+|---------------------|------------------------|
+| Build command       | `npm run build`        |
+| Build output        | `public`               |
+| Root directory      | *(leave blank)*        |
+
+The D1 binding (`DB` → `pm-db`) is declared in `wrangler.toml` and picked up by Pages automatically. If you prefer dashboard-only setup, add the binding under Pages project → Settings → Functions → D1 database bindings.
+
+For manual one-off deploys: `npm run deploy`.
 
 ---
 
@@ -54,13 +62,15 @@ Wrangler prints your public URL (`https://pm-tracker.<your-subdomain>.workers.de
 
 ```
 PMUPDATES/
-├── wrangler.toml                # Cloudflare config (Worker + D1 + assets)
+├── wrangler.toml                # Cloudflare config (Pages + D1)
 ├── package.json                 # Dependencies and scripts
 ├── tsconfig.json                # TypeScript + Hono JSX config
 ├── migrations/
 │   └── 0001_init.sql            # D1 schema
+├── functions/
+│   └── [[path]].ts              # Pages Functions catch-all → Hono app
 ├── src/
-│   ├── index.tsx                # Hono routes (entry point)
+│   ├── index.tsx                # Hono routes (the actual app)
 │   ├── db.ts                    # D1 types + helpers
 │   ├── parsers.ts               # BOM parsing (CSV / XLSX / PDF)
 │   ├── flash.ts                 # Cookie-based flash messages
@@ -70,7 +80,7 @@ PMUPDATES/
 │       ├── daily.tsx            # Page 2: daily install entry
 │       ├── admin.tsx            # Page 3: cost & labor summary
 │       └── labor_manual.tsx     # Office Installation Hours Manual admin
-├── public/
+├── public/                      # Static assets (Pages build output)
 │   └── static/
 │       ├── style.css            # 3DTS branding (teal / white / black / gold)
 │       └── daily.js             # Daily-entry live calculator
