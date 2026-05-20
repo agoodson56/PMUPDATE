@@ -1,16 +1,23 @@
 // Daily entry page: live calculation preview before save.
 (function () {
-    // Force the date input to TODAY in the user's local timezone. The
-    // server pre-fills using its best timezone guess, but the browser
-    // knows the real local clock — overwrite on load. Field stays
-    // editable so the PM can pick any other date.
+    // Force the date input to TODAY in California (Pacific time).
+    // 3DTS is based in CA; the date should always reflect Pacific local
+    // time regardless of the user's browser timezone. The inline script
+    // in daily.tsx already does this; keeping it here as a fallback for
+    // any cached HTML that lacks the inline tag.
     var dateInput = document.querySelector('input[name="entry_date"]');
     if (dateInput) {
-        var d = new Date();
-        var yyyy = d.getFullYear();
-        var mm = String(d.getMonth() + 1).padStart(2, '0');
-        var dd = String(d.getDate()).padStart(2, '0');
-        dateInput.value = yyyy + '-' + mm + '-' + dd;
+        try {
+            dateInput.value = new Intl.DateTimeFormat('sv-SE', {
+                timeZone: 'America/Los_Angeles',
+                year: 'numeric', month: '2-digit', day: '2-digit'
+            }).format(new Date());
+        } catch (e) {
+            var d = new Date();
+            dateInput.value = d.getFullYear() + '-' +
+                String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                String(d.getDate()).padStart(2, '0');
+        }
     }
 
     function recalcRow(row) {

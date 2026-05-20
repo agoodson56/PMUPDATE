@@ -45,17 +45,25 @@ export function Daily({ project, items, history, today, flash, user }: Props) {
                     <label>Date
                         <input type="date" name="entry_date" id="entry_date" value={today} required />
                     </label>
-                    {/* Belt-and-suspenders: force the date input to the browser's
-                        true local date immediately, in case the server-rendered
-                        value was off (UTC timezone bug). */}
+                    {/* Force the date input to TODAY in California (Pacific
+                        time) regardless of the browser's local timezone or
+                        whether the server-side render guessed correctly. */}
                     <script>{raw(`
                         (function () {
                             var input = document.getElementById('entry_date');
                             if (!input) return;
-                            var d = new Date();
-                            input.value = d.getFullYear() + '-' +
-                                String(d.getMonth() + 1).padStart(2, '0') + '-' +
-                                String(d.getDate()).padStart(2, '0');
+                            try {
+                                input.value = new Intl.DateTimeFormat('sv-SE', {
+                                    timeZone: 'America/Los_Angeles',
+                                    year: 'numeric', month: '2-digit', day: '2-digit'
+                                }).format(new Date());
+                            } catch (e) {
+                                // Fall back to browser-local date.
+                                var d = new Date();
+                                input.value = d.getFullYear() + '-' +
+                                    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                                    String(d.getDate()).padStart(2, '0');
+                            }
                         })();
                     `)}</script>
                     <label>Total Hours Today
