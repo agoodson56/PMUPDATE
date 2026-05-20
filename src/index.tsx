@@ -65,8 +65,28 @@ function isFile(v: unknown): v is File {
     );
 }
 
-function todayIso(): string {
+function todayIso(tz?: string | null): string {
+    // Workers runs in UTC, so naively `new Date().toISOString()` is one
+    // day ahead at evening Pacific time. If we know the user's timezone
+    // (Cloudflare populates request.cf.timezone from GeoIP), format the
+    // current moment in that zone instead. The "sv-SE" locale formats as
+    // YYYY-MM-DD which is what <input type="date"> expects.
+    if (tz) {
+        try {
+            return new Intl.DateTimeFormat("sv-SE", {
+                timeZone: tz,
+                year: "numeric", month: "2-digit", day: "2-digit",
+            }).format(new Date());
+        } catch {
+            // Bad tz string — fall through to UTC.
+        }
+    }
     return new Date().toISOString().slice(0, 10);
+}
+
+function userTimezone(c: { req: { raw: Request } }): string | null {
+    const cf = (c.req.raw as Request & { cf?: { timezone?: string } }).cf;
+    return cf?.timezone ?? null;
 }
 
 function htmlResponse(node: unknown): Response {
@@ -339,7 +359,7 @@ app.get("/project/:id/daily", async c => {
             project={project}
             items={items}
             history={histRes.results ?? []}
-            today={todayIso()}
+            today={todayIso(userTimezone(c))}
             flash={flash}
             user={c.var.user}
         />,
@@ -352,7 +372,7 @@ app.post("/project/:id/daily", async c => {
     if (!project) return c.notFound();
 
     const form = await c.req.formData();
-    const entry_date = (String(form.get("entry_date") ?? "").trim()) || todayIso();
+    const entry_date = (String(form.get("entry_date") ?? "").trim()) || todayIso(userTimezone(c));
     const total_hours = toFloat(form.get("total_hours"));
     const notes = String(form.get("notes") ?? "").trim();
 

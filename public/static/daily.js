@@ -1,5 +1,18 @@
 // Daily entry page: live calculation preview before save.
 (function () {
+    // Force the date input to TODAY in the user's local timezone. The
+    // server pre-fills using its best timezone guess, but the browser
+    // knows the real local clock — overwrite on load. Field stays
+    // editable so the PM can pick any other date.
+    var dateInput = document.querySelector('input[name="entry_date"]');
+    if (dateInput) {
+        var d = new Date();
+        var yyyy = d.getFullYear();
+        var mm = String(d.getMonth() + 1).padStart(2, '0');
+        var dd = String(d.getDate()).padStart(2, '0');
+        dateInput.value = yyyy + '-' + mm + '-' + dd;
+    }
+
     function recalcRow(row) {
         const input = row.querySelector('input[name^="installed_"]');
         if (!input) return 0;
