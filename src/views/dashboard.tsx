@@ -1,3 +1,4 @@
+import { raw } from "hono/html";
 import { Layout } from "./layout";
 import type { Project } from "../db";
 import type { Flash } from "../flash";
@@ -73,11 +74,11 @@ export function Dashboard({ projects, flash }: { projects: Project[]; flash: Fla
                 </div>
             </div>
 
-            <script>{`
+            <script>{raw(`
                 function openModal(){ document.getElementById('upload-modal').classList.add('open'); }
                 function closeModal(){ document.getElementById('upload-modal').classList.remove('open'); }
-                document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-            `}</script>
+                document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
+            `)}</script>
         </Layout>
     );
 }
